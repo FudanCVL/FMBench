@@ -1,0 +1,20 @@
+# Accelerate 配置文件 - 4卡 GPU 训练
+# 使用方法: accelerate launch --config_file accelerate_configs/multi_gpu.yaml train_grpo_batch.py
+
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU  # 多卡 GPU 分布式训练
+downcast_bf16: 'no'
+gpu_ids: all  # 使用所有 GPU，也可以指定如 [0, 1, 2, 3]
+machine_rank: 0  # 单机训练，rank 为 0
+main_training_function: main
+mixed_precision: 'bf16'  # 使用 bfloat16 混合精度，可改为 'fp16' 或 'no'
+num_machines: 1  # 单机训练
+num_processes: 4  # 使用 4 个进程（4 张卡）
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+use_npu: false  # 不使用 NPU，使用 GPU
+

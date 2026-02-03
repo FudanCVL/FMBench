@@ -1,0 +1,19 @@
+# Accelerate 配置文件 - 4卡 NPU 训练
+# 使用方法: accelerate launch --config_file accelerate_configs/multi_npu.yaml train_grpo_batch.py
+# 注意: 如果使用 NPU，可能需要通过环境变量指定设备，如: export DEVICE_ID=0,1,2,3
+
+compute_environment: LOCAL_MACHINE
+distributed_type: MULTI_GPU  # 使用 MULTI_GPU 类型（对于 NPU，accelerate 可能使用类似的分布式机制）
+downcast_bf16: 'no'
+gpu_ids: all  # 使用所有设备，NPU 通过环境变量或设备映射自动分配
+machine_rank: 0
+main_training_function: main
+mixed_precision: 'bf16'
+num_machines: 1
+num_processes: 4
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false

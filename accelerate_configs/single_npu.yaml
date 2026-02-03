@@ -1,0 +1,20 @@
+# Accelerate 配置文件 - 单卡 NPU 训练
+# 使用方法: accelerate launch --config_file accelerate_configs/single_npu.yaml train_grpo_batch.py
+# 注意: 如果使用 NPU，可能需要通过环境变量指定设备，如: export DEVICE_ID=0
+
+compute_environment: LOCAL_MACHINE
+distributed_type: NO  # 单卡训练，不使用分布式
+downcast_bf16: 'no'
+gpu_ids: all
+machine_rank: 0
+main_training_function: main
+mixed_precision: 'no'  # 不使用混合精度，可改为 'bf16' 或 'fp16'
+num_machines: 1
+num_processes: 1  # 单进程
+rdzv_backend: static
+same_network: true
+tpu_env: []
+tpu_use_cluster: false
+tpu_use_sudo: false
+use_cpu: false
+

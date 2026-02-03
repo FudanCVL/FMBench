@@ -1,0 +1,338 @@
+v1:
+  name: "markdown_only_spec_conditioned_formatting_v1"
+  scope:
+    output_formats: ["markdown"]
+    validator_type: "rule_based"
+    domain_generalization: false
+    primary_objective: "improve_train_eval_performance_on_fixed_spec_distribution"
+
+task_definition:
+  name: "spec_conditioned_semantic_preserving_markdown_formatting"
+  input:
+    seed_text:
+      language: "en"
+      typical_length_words: [200, 300]
+      notes:
+        - "Seed text is plain text but may include pseudo-structure signals (heading-like lines and key/value field lines such as Abstract/Date/Time)."
+    format_spec:
+      type: "structured_spec"
+      prompt_rendering:
+        deterministic: true
+        include_negative_constraints: true
+        language: "en"
+  output:
+    formatted_text:
+      format: "markdown"
+  constraints:
+    ordering_policy: "no_reorder"           # preserve order of units used for alignment (segments)
+    content_policy: "semantic_preserve"     # allows paraphrase within aligned units
+    rewrite_granularity: "segment"          # headings/fields/paragraph-sentences are separate segment types
+    allowed_operations:
+      - "wrap_into_markdown_structure"      # headings/lists/tables/quotes/code blocks per spec
+      - "segment_level_rephrase"            # see semantic_fidelity.similarity_policy
+      - "markdown_escaping"
+      - "line_wrapping"                     # if enabled by spec
+    forbidden_operations:
+      - "segment_reordering"
+      - "segment_merge"
+      - "segment_split"
+      - "add_new_facts_or_claims"
+      - "drop_any_segment_semantic_content"
+      - "add_explanations_outside_required_structure"
+
+spec_language:
+  version: "md_spec_v1"
+  nature: "pure_declarative"
+  disallowed_features_v1:
+    - "conditional_logic_if_else"
+    - "external_resources"
+  knobs:
+    # Fixed v1 ranges; keep stable across iterations unless version bumps.
+    heading_depth_max: [1, 2]
+    section_count: [2, 5]
+    require_nested_list: [true, false]
+    nested_list_depth: [1, 3]
+    list_items: [3, 10]
+    require_table: [true, false]
+    table:
+      rows: [3, 6]
+      cols: [3, 5]
+      allow_long_cell: [true, false]
+    require_blockquote: [true, false]
+    blockquote_count: [1, 3]
+    require_codeblock: [true, false]
+    codeblock_count: [1, 1]
+    wrap_mode: ["none", "hard_wrap_80"]
+  canonical_prompt_template:
+    requirements:
+      - "Output Markdown only."
+      - "Preserve the order of content units (no reordering)."
+      - "Do not merge or split content units."
+      - "You may rephrase content units while keeping meaning."
+      - "Do not add new information or omit information."
+      - "Do not output any extra commentary outside the required Markdown document."
+    structure_instructions:
+      - "Apply headings/sections per spec."
+      - "Apply lists/tables/quotes/code blocks per spec."
+
+variant_generation:
+  approach: "rule_driven"
+  deterministic: true
+  rng:
+    seed_source: "hash(seed_id, variant_id)"
+  families_enabled:
+    - "headings_sections"
+    - "nested_lists"
+    - "tables"
+    - "blockquotes"
+    - "codeblocks"
+    - "wrapping_policy"
+  content_handling:
+    segmentation_unit: "segment"
+    preprocessing:
+      normalize_newlines: "LF"
+      preserve_trailing_spaces: true
+      collapse_multiple_blank_lines: false
+    line_classification:
+      enabled: true
+      heading_like_rules:
+        short_line_max_chars: 80
+        require_not_end_with_sentence_punct: true   # ., !, ?
+        match_any:
+          - "regex_numbered_heading: ^\\s*(\\d+(?:\\.\\d+)*)\\s+\\S+"
+          - "regex_roman_heading: ^\\s*([IVXLC]+)\\.?\\s+\\S+"
+          - "regex_delimited_heading: ^\\s*[-=]{2,}\\s*\\S.*\\S\\s*[-=]{2,}\\s*$"
+          - "uppercase_ratio_gte: 0.6"              # computed over A-Z letters when present
+      field_line_rules:
+        key_value_delimiters: [":", "-", "="]
+        keys_case_insensitive:
+          - "abstract"
+          - "date"
+          - "time"
+          - "author"
+          - "authors"
+          - "keywords"
+          - "affiliation"
+          - "email"
+        allow_key_only_line: true                   # e.g., 'Abstract:' then content continues next line
+        regex_key_only_line: "^\\s*([A-Za-z][A-Za-z\\s]{0,30})\\s*[:=-]\\s*$"
+        regex_key_value_line: "^\\s*([A-Za-z][A-Za-z\\s]{0,30})\\s*[:=-]\\s+\\S+.*$"
+      blank_line_rules:
+        treat_as_boundary: true
+    paragraph_aggregation:
+      enabled: true
+      join_wrapped_lines: true                      # merge normal lines into paragraphs before sentence splitting
+      preserve_blank_lines_as_boundaries: true
+    sentence_splitter:
+      name: "fixed_sentence_splitter_v2"
+      apply_to_segment_types: ["paragraph_text"]
+      rules:
+        - "split_on_.!? except common abbreviations"
+        - "protect_decimals_and_acronyms: true"
+        - "treat_list_items_as_sentences: true"     # for generated markdown lists
+        - "treat_headings_as_sentences: false"
+        - "treat_field_lines_as_sentences: false"
+    segment_types:
+      - "heading_like_line"
+      - "field_line"
+      - "paragraph_sentence"                        # derived from paragraph_text segments
+    mapping_policy:
+      alignment_unit: "segment"
+      monotonic_one_to_one: true
+      no_reorder: true
+      forbid_merge_split: true
+
+validator:
+  name: "markdown_ruleset_v1"
+  mode: "hard_constraints_plus_diagnostics"
+  hard_fail_conditions:
+    - id: "non_markdown_output_detected"
+      description: "Output violates the Markdown-only constraint."
+    - id: "extra_text_outside_document"
+      description: "Any preface/epilogue/instructions outside required Markdown."
+    - id: "unclosed_fenced_code_block"
+      description: "Fenced code blocks must be properly opened/closed."
+    - id: "inconsistent_table_columns"
+      description: "Markdown pipe tables must have consistent column counts."
+    - id: "invalid_table_separator_row"
+      description: "Separator row must match column count and be syntactically valid."
+    - id: "illegal_heading_jump"
+      description: "Heading levels must not jump (e.g., # directly to ###)."
+    - id: "list_indentation_invalid"
+      description: "Nested list indentation must follow configured indent width consistently."
+    - id: "spec_violation_missing_required_component"
+      description: "Spec-required components (table/list/quote/code) missing."
+    - id: "spec_violation_exceeds_max_depth"
+      description: "Heading/list nesting exceeds spec limits."
+    - id: "ordering_policy_violation"
+      description: "Detected segment order changes vs input segmentation."
+    - id: "merge_split_violation"
+      description: "Detected segment merge or split vs input segmentation."
+  diagnostics:
+    - "first_error_position"
+    - "error_type_histogram"
+    - "component_coverage"
+    - "length_stats"
+
+semantic_fidelity:
+  evaluation_mode: "gate_then_score"
+  alignment:
+    granularity: "segment"
+    segment_types:
+      - "heading_like_line"
+      - "field_line"
+      - "paragraph_sentence"
+    constraints:
+      monotonic: true
+      one_to_one: true
+  gate:
+    require_alignment_success: true
+    require_no_reorder: true
+    require_no_merge_split: true
+    require_semantic_similarity: true
+    similarity_thresholds:
+      heading_like_line: "T_heading_calibrated_on_devset"
+      field_line: "T_field_calibrated_on_devset"
+      paragraph_sentence: "T_sentence_calibrated_on_devset"
+  similarity_policy:
+    heading_like_line:
+      allowed_rewrite: "minimal"                   # allow small paraphrase/normalization
+      forbid_additional_sentences: true
+    field_line:
+      allowed_rewrite: "minimal"
+      forbid_key_change: true                      # do not change field key string beyond casing/spacing
+    paragraph_sentence:
+      allowed_rewrite: "paraphrase"
+  similarity_checks:
+    - type: "embedding_similarity"
+      enabled: true
+    - type: "nli"
+      enabled: false                               # v1 optional
+  prohibited_semantic_changes:
+    - "introduce_new_named_entities"
+    - "introduce_new_numbers_or_dates"
+    - "add_new_causal_claims_or_recommendations"
+    - "remove_conditions_or_qualifiers"
+
+data_schema:
+  seeds_jsonl:
+    record:
+      fields: ["id", "type", "seed_text"]
+      example: {"id": "seed_0001", "type": "academic_paper", "seed_text": "xxxxx"}
+  variants_jsonl:
+    record:
+      fields:
+        - "seed_id"
+        - "variant_id"
+        - "format"
+        - "difficulty_level"
+        - "variant_family"
+        - "spec"
+        - "prompt"
+        - "target_text"
+        - "validator_spec"
+      notes:
+        - "prompt is deterministic rendering of spec"
+        - "target_text is rule-generated Markdown for supervised training"
+        - "validator_spec references markdown_ruleset_v1"
+  logging_fields:
+    - "model_output"
+    - "hard_fail"
+    - "hard_fail_reasons"
+    - "diagnostics"
+    - "semantic_gate_pass"
+    - "semantic_scores"
+
+splits:
+  strategy: "spec_combination_holdout"
+  seed_split:
+    train: 0.9
+    eval: 0.1
+    stratify_by: ["approx_length_bucket"]
+  spec_holdout:
+    enabled: true
+    method: "disjoint_combinations"
+    train_spec_set: "A"
+    eval_spec_set: "B"
+    definition:
+      - "Keep knob ranges identical across train/eval."
+      - "Hold out specific parameter combinations from train (same knob values, new combinations)."
+  devset_for_thresholds:
+    enabled: true
+    proportion_from_train: 0.02
+    purpose: "calibrate similarity thresholds once; then freeze"
+
+difficulty:
+  levels:
+    L1:
+      constraints:
+        heading_depth_max: 1
+        section_count: [2, 3]
+        require_nested_list: false
+        require_table: false
+        require_blockquote: false
+        require_codeblock: false
+        wrap_mode: "none"
+    L2:
+      constraints:
+        heading_depth_max: 2
+        section_count: [3, 4]
+        require_nested_list: true
+        nested_list_depth: [1, 2]
+        require_table: false
+        require_blockquote: true
+        blockquote_count: [1, 1]
+        require_codeblock: false
+        wrap_mode: "none"
+    L3:
+      constraints:
+        heading_depth_max: 2
+        section_count: [4, 5]
+        require_nested_list: true
+        nested_list_depth: [2, 3]
+        list_items: [6, 10]
+        require_table: true
+        table:
+          rows: [3, 5]
+          cols: [3, 4]
+          allow_long_cell: true
+        require_blockquote: true
+        blockquote_count: [2, 3]
+        require_codeblock: true
+        codeblock_count: [1, 1]
+        wrap_mode: "hard_wrap_80"
+
+training_plan_v1:
+  objective: "train_eval_improvement"
+  baseline:
+    method: "SFT_only"
+    notes:
+      - "Use (prompt, target_text) pairs from rule-generated variants."
+      - "Primary goal: improve hard_pass_rate and reduce structural violations."
+  optional_next_step:
+    method: "RL_or_preference_optimization"
+    gated_on:
+      - "hard_pass_rate_plateaus_under_SFT"
+      - "remaining_errors_are_sparse_structural_violations"
+    reward_sketch:
+      hard_constraints:
+        pass: 1.0
+        fail: 0.0
+      soft_terms:
+        - "constraint_violation_count_penalty"
+        - "first_error_position_penalty"
+        - "semantic_gate_penalty"
+
+reporting:
+  primary_metric:
+    name: "hard_pass_rate"
+    definition: "fraction of samples with no hard_fail"
+  secondary_metrics:
+    - "constraint_violation_count"
+    - "first_error_position"
+    - "component_coverage_rate"
+    - "semantic_gate_pass_rate"
+  breakdowns:
+    - "by_difficulty_level"
+    - "by_variant_family"
+    - "by_spec_knob_bucket"
