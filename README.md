@@ -1,6 +1,6 @@
 # FMBench: Adaptive Language Model Output Formatting with Reinforcement Learning
 
-This repository contains the **SFT+GRPO finetuning** implementation for **openPangu** with the **FMBench** dataset.
+This repository contains the **SFT+GRPO finetuning** implementation for [**openPangu**](https://huggingface.co/collections/FreedomIntelligence/openpangu) with the **FMBench** dataset.
 
 ## ⚙️ Installation
 
